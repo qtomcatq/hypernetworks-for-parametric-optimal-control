@@ -73,65 +73,6 @@ class StableResNODEMLP(nn.Module):
             x = x + self.dt * h
         return self.out(x)
 
-class FullyVariableResNet(nn.Module):
-    def __init__(self, in_size, out_size, widths):
-        super().__init__()
-        self.act = nn.SiLU()
-
-        self.layers = nn.ModuleList()
-        self.skips = nn.ModuleList()
-
-        dims = (in_size,) + widths
-        for d_in, d_out in zip(dims[:-1], dims[1:]):
-            self.layers.append(nn.Linear(d_in, d_out))
-            self.skips.append(
-                nn.Identity() if d_in == d_out else nn.Linear(d_in, d_out, bias=False)
-            )
-
-        self.out = nn.Linear(widths[-1], out_size)
-        self.dt = 1.0 / len(self.layers)
-
-    def forward(self, x):
-        for f, s in zip(self.layers, self.skips):
-            x = s(x) + self.dt * f(self.act(x))
-        return self.out(x)
-
-class MLPWithSkip(nn.Module):
-    def __init__(self, in_size, out_size, mlp_size, num_layers, skip=True, tanh=False):
-        super().__init__()
-
-        self.skip = skip
-        self.num_layers = num_layers
-
-        # input projection
-        self.inp = nn.Linear(in_size, mlp_size)
-
-        # residual blocks
-        self.blocks = nn.ModuleList([
-            nn.Linear(mlp_size, mlp_size) for _ in range(num_layers)
-        ])
-
-        # output projection
-        self.out = nn.Linear(mlp_size, out_size)
-
-        self.act = nn.ReLU()
-        self.out_act = nn.Tanh() if tanh else nn.Identity()
-
-    def forward(self, x):
-        x = self.inp(x)
-
-        for layer in self.blocks:
-            if self.skip:
-                # standard pre-activation ResNet block
-                h = self.act(x)
-                h = layer(h)
-                x = x + h
-            else:
-                x = self.act(layer(x))
-
-        x = self.act(x)
-        x = self.out(x)
-        return self.out_act(x)
 
 class LinearNet(nn.Module):
     def __init__(self, in_size, out_size):
@@ -300,12 +241,10 @@ class MLPHypernetwork(TorchHyperNetwork):
             return LinearNet(self.hyper_dims, self.num_target_parameters)
         else:
             if self.skip:
-                #return FullyVariableResNet(self.hyper_dims, self.num_target_parameters, self.layers)
                 return StableResNODEMLP(self.hyper_dims, self.num_target_parameters,self.layers[0], len(self.layers))
             else:
                 return MLPL(self.hyper_dims, self.num_target_parameters, self.layers)
-            #return FullyVariableResNet(self.hyper_dims, self.num_target_parameters, self.layers)
-            #return StableResNODEMLP(self.hyper_dims, self.num_target_parameters,self.layers[0], len(self.layers))
+
     
     def generate_params(
         self, inp: torch.Tensor
